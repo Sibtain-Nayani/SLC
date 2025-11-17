@@ -1,87 +1,35 @@
 import os
-import math
 import random
-import json
+import math
 from typing import List, Dict, Any
 from datetime import datetime, timedelta
 
-# For lightweight summarization
-from sklearn.feature_extraction.text import TfidfVectorizer
+# NLP and ML
 import nltk
-from nltk.corpus import stopwords, wordnet
 from nltk.tokenize import sent_tokenize, word_tokenize
+from sklearn.feature_extraction.text import TfidfVectorizer
 
-# Ensure NLTK resources
+# Ensure NLTK data
 nltk.download('punkt', quiet=True)
-nltk.download('punkt_tab', quiet=True)  # Added for new NLTK versions
-nltk.download('stopwords', quiet=True)
+nltk.download('punkt_tab', quiet=True) # Dependency for tokenization
+nltk.download('averaged_perceptron_tagger_eng', quiet=True) # For POS tagging
+nltk.download('stopwords', quiet=True) # For summarizer/quizzer
 nltk.download('wordnet', quiet=True)
 nltk.download('omw-1.4', quiet=True)
+nltk.download('averaged_perceptron_tagger', quiet=True)
+from nltk.corpus import stopwords
 
-# optional: transformers summarizer
-try:
-    from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
-    TRANSFORMERS_AVAILABLE = True
-except Exception:
-    TRANSFORMERS_AVAILABLE = False
-
-# persistence
-import joblib
-
-
-# ----------------------------------------------------------------------
-# Summarizer Class
-# ----------------------------------------------------------------------
 class Summarizer:
-    def __init__(self, models_dir: str = "models", use_transformers: bool = False):
+    def __init__(self, models_dir: str = "models"):
         self.models_dir = models_dir
-        self.use_transformers = use_transformers and TRANSFORMERS_AVAILABLE
-        self.tfidf_vectorizer = None
 
-        # if transformer models available and selected, load pipeline lazily
-        self._summarizer_pipeline = None
-        if self.use_transformers:
-            try:
-                self._summarizer_pipeline = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
-            except Exception:
-                self._summarizer_pipeline = None
-
-    def summarize(self, text: str, max_sentences: int = 5) -> str:
+    def summarize(self, text: str, max_sentences: int = 6) -> str:
         text = text.strip()
         if not text:
             return ""
-
-        # try transformer if available
-        if self.use_transformers and self._summarizer_pipeline:
-            try:
-                if len(text.split()) < 800:
-                    out = self._summarizer_pipeline(text, max_length=200, min_length=60, truncation=True)
-                    return out[0]['summary_text']
-                else:
-                    sents = sent_tokenize(text)
-                    chunks, chunk = [], ""
-                    for s in sents:
-                        if len((chunk + " " + s).split()) > 500:
-                            chunks.append(chunk)
-                            chunk = s
-                        else:
-                            chunk = chunk + " " + s
-                    if chunk:
-                        chunks.append(chunk)
-                    summaries = []
-                    for ch in chunks:
-                        out = self._summarizer_pipeline(ch, max_length=120, min_length=30, truncation=True)
-                        summaries.append(out[0]['summary_text'])
-                    combined = " ".join(summaries)
-                    out = self._summarizer_pipeline(combined, max_length=200, min_length=60, truncation=True)
-                    return out[0]['summary_text']
-            except Exception:
-                pass  # fallback to TF-IDF summarizer
-
-        # TF-IDF fallback summarizer
         sents = sent_tokenize(text)
         if len(sents) <= max_sentences:
-            return text
+            return " ".join(sents)
         tfidf = TfidfVectorizer(stop_words=stopwords.words('english'))
         try:
             X = tfidf.fit_transform(sents)
@@ -93,112 +41,105 @@ class Summarizer:
         except Exception:
             return " ".join(sents[:max_sentences])
 
-
-# ----------------------------------------------------------------------
-# QuizGenerator Class
-# ----------------------------------------------------------------------
-import random
-import nltk
-from nltk.tokenize import sent_tokenize
-from transformers import pipeline
-
-# Make sure nltk punkt is available
-nltk.download('punkt', quiet=True)
-
 class QuizGenerator:
     def __init__(self):
-        # Using a small but context-aware model for question generation
-        try:
-            self.qg_pipeline = pipeline(
-                "text2text-generation",
-                model="valhalla/t5-small-qg-prepend",
-                tokenizer="valhalla/t5-small-qg-prepend"
-            )
-        except Exception:
-            self.qg_pipeline = None
+        self.stopwords = set(stopwords.words('english'))
 
-    def generate_mcq_from_text(self, text, num_questions=5):
+    def _clean_option_list(self, options):
         """
-        Generates meaningful, topic-aware MCQs from given text.
+        Normalize options: remove duplicates case-insensitive and maintain capitalized formatting.
         """
-        if not text or len(text.split()) < 30:
+        seen = set()
+        cleaned = []
+        for o in options:
+            if not isinstance(o, str):
+                continue
+            norm = o.strip()
+            if not norm:
+                continue
+            key = norm.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(norm.capitalize())
+        return cleaned
+
+    def _get_distractors_simple(self, answer, text, n=3):
+        words = [w for w in set(word_tokenize(text)) if w.isalpha() and w.lower() not in self.stopwords and w.lower() != answer.lower()]
+        random.shuffle(words)
+        return [w.capitalize() for w in words[:n]]
+
+    def generate_mcq_from_text(self, text: str, num_questions: int = 5) -> List[Dict[str, Any]]:
+        """
+        Generate contextual MCQs from summary text.
+        This is an extractive approach (no heavy LLMs) and tries to pick meaningful nouns as answers.
+        """
+        text = text.strip()
+        if not text:
             return []
-
-        # Pick relevant sentences (filter out junk)
-        sentences = sent_tokenize(text)
-        sentences = [s for s in sentences if 8 < len(s.split()) < 40]
-        random.shuffle(sentences)
-
+        sents = sent_tokenize(text)
+        # filter sentences with enough content
+        sents = [s for s in sents if len(word_tokenize(s)) > 6]
+        if not sents:
+            return []
+        random.shuffle(sents)
         questions = []
-        used_qs = set()
+        used_answers = set()
+        for sent in sents:
+            # find candidate answer nouns
+            tokens = word_tokenize(sent)
+            tags = nltk.pos_tag(tokens)
+            nouns = [w for w, pos in tags if pos.startswith("NN") and w.isalpha() and w.lower() not in self.stopwords]
+            if not nouns:
+                continue
+            # pick the most informative noun (longest)
+            nouns = sorted(nouns, key=lambda x: -len(x))
+            answer = nouns[0]
+            if answer.lower() in used_answers:
+                continue
+            used_answers.add(answer.lower())
+            question_text = sent.replace(answer, "_____")
+            distractors = self._get_distractors_simple(answer, text, n=6)
+            # ensure answer not in distractors
+            distractors = [d for d in distractors if d.lower() != answer.lower()]
+            options = [answer] + distractors[:3]
+            options = self._clean_option_list(options)
+            if answer.capitalize() not in options:
+                options.append(answer.capitalize())
+            # final dedupe and trim
+            options = options[:4]
+            random.shuffle(options)
+            questions.append({"question": question_text, "answer": answer.capitalize(), "options": options})
+            if len(questions) >= num_questions:
+                break
 
-        if self.qg_pipeline:
-            # Model-based QG (if transformer works)
-            for sent in sentences[:num_questions]:
-                try:
-                    result = self.qg_pipeline(f"generate question: {sent}")
-                    q_text = result[0]["generated_text"].strip()
-                    if q_text and q_text not in used_qs:
-                        answer = self._extract_answer(sent)
-                        options = self._generate_options(answer, text)
-                        questions.append({
-                            "question": q_text,
-                            "options": options,
-                            "answer": answer
-                        })
-                        used_qs.add(q_text)
-                except Exception:
-                    continue
+        # fallback: simple blanks if not enough
+        i = 0
+        while len(questions) < num_questions and i < len(sents):
+            sent = sents[i]
+            words = [w for w in word_tokenize(sent) if w.isalpha()]
+            if len(words) > 3:
+                idx = len(words)//2
+                ans = words[idx]
+                q = sent.replace(ans, "_____")
+                opts = self._get_distractors_simple(ans, text, n=6)[:3] + [ans]
+                opts = self._clean_option_list(opts)
+                random.shuffle(opts)
+                questions.append({"question": q, "answer": ans.capitalize(), "options": opts[:4]})
+            i += 1
 
-        # Fallback if model isn't available
-        if not questions:
-            for sent in sentences[:num_questions]:
-                words = sent.split()
-                if len(words) > 6:
-                    blank_index = random.randint(2, len(words) - 3)
-                    answer = words[blank_index].strip(".,")
-                    words[blank_index] = "____"
-                    q_text = " ".join(words)
-                    options = self._generate_options(answer, text)
-                    questions.append({
-                        "question": q_text,
-                        "options": options,
-                        "answer": answer
-                    })
-        return questions
+        return questions[:num_questions]
 
-    def _extract_answer(self, sentence):
-        """
-        Naive answer extractor (last noun or keyword in sentence).
-        """
-        tokens = nltk.word_tokenize(sentence)
-        pos_tags = nltk.pos_tag(tokens)
-        nouns = [word for word, pos in pos_tags if pos.startswith("NN")]
-        return nouns[-1] if nouns else tokens[-1]
-
-    def _generate_options(self, correct_answer, text):
-        """
-        Creates multiple-choice options, ensuring semantic similarity.
-        """
-        words = list(set([w for w in text.split() if w.isalpha()]))
-        distractors = random.sample(words, min(3, len(words))) if len(words) > 3 else []
-        distractors = [w for w in distractors if w.lower() != correct_answer.lower()]
-        all_opts = [correct_answer] + distractors[:3]
-        random.shuffle(all_opts)
-        return all_opts
-
-
-
-# ----------------------------------------------------------------------
-# Spaced Repetition Scheduler
-# ----------------------------------------------------------------------
 class SpacedRepetitionScheduler:
-    """Simple SM-2 inspired scheduler."""
     def __init__(self, db):
         self.db = db
 
     def update_schedule_after_quiz(self, topic: str, score: float, max_score: float = 5.0):
-        quality = int(round(min(5.0, score) / max_score * 5))
+        # map raw score to quality 0-5
+        try:
+            quality = int(round(min(max_score, score) / max_score * 5))
+        except Exception:
+            quality = 0
         entry = self.db.get_schedule(topic)
         if not entry:
             interval = 1
@@ -232,7 +173,7 @@ class SpacedRepetitionScheduler:
         schedules = self.db.get_all_schedules()
         out = []
         for s in schedules:
-            if s['next_review_date']:
+            if s.get('next_review_date'):
                 d = datetime.fromisoformat(s['next_review_date'])
                 delta = (d.date() - datetime.utcnow().date()).days
                 if delta <= days:
