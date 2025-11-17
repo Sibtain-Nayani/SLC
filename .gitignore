@@ -1,0 +1,15 @@
+# Ignore virtual environments
+mpvenv/
+venv/
+env/
+
+# Ignore compiled python files
+__pycache__/
+*.pyc
+
+# Ignore your local database (contains your personal data)
+data/slc.db
+
+# Ignore IDE settings
+.idea/
+.vscode/
