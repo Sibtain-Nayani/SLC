@@ -5,13 +5,6 @@ from typing import List, Dict, Any
 
 CREATE_TABLES_SQL = [
 """
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE,
-    created_at TEXT
-);
-""",
-"""
 CREATE TABLE IF NOT EXISTS notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     topic TEXT UNIQUE,
@@ -62,7 +55,7 @@ class Database:
             c.execute(sql)
         self._conn.commit()
 
-    
+    # Notes
     def insert_or_update_note(self, topic: str, raw_text: str, summary: str):
         now = datetime.datetime.utcnow().isoformat()
         c = self._conn.cursor()
@@ -87,10 +80,10 @@ class Database:
         c.execute("SELECT topic FROM notes ORDER BY last_updated DESC")
         return [r["topic"] for r in c.fetchall()]
 
- 
+    # Quizzes
     def save_quiz(self, topic: str, questions: List[Dict[str, Any]]):
         now = datetime.datetime.utcnow().isoformat()
-        qj = json.dumps(questions)
+        qj = json.dumps(questions, ensure_ascii=False)
         c = self._conn.cursor()
         c.execute("INSERT INTO quizzes (topic, questions_json, created_at) VALUES (?, ?, ?)", (topic, qj, now))
         self._conn.commit()
@@ -103,10 +96,10 @@ class Database:
             return []
         return json.loads(row["questions_json"])
 
- 
+    # Quiz results
     def save_quiz_result(self, topic: str, results: List[Dict[str, Any]], score: float):
         now = datetime.datetime.utcnow().isoformat()
-        rj = json.dumps(results)
+        rj = json.dumps(results, ensure_ascii=False)
         c = self._conn.cursor()
         c.execute("INSERT INTO quiz_results (topic, results_json, score, taken_at) VALUES (?, ?, ?, ?)", (topic, rj, score, now))
         self._conn.commit()
@@ -116,7 +109,7 @@ class Database:
         c.execute("SELECT * FROM quiz_results WHERE topic = ? ORDER BY taken_at DESC", (topic,))
         return [dict(row) for row in c.fetchall()]
 
-   
+    # Repetition schedule
     def get_schedule(self, topic: str):
         c = self._conn.cursor()
         c.execute("SELECT * FROM repetition_schedule WHERE topic = ?", (topic,))
