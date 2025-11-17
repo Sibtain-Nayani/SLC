@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
 
-from file_module import read_text_from_path
+from file_module import extract_text
 from ml_module import Summarizer, QuizGenerator, SpacedRepetitionScheduler
 from db_module import Database
 from visualization import Visualization
@@ -20,7 +20,6 @@ summarizer = Summarizer(models_dir=MODELS_DIR)
 quizgen = QuizGenerator()
 scheduler = SpacedRepetitionScheduler(db)
 viz = Visualization(db)
-
 
 class App(tk.Tk):
     def __init__(self):
@@ -52,9 +51,6 @@ class App(tk.Tk):
         self._build_quiz_tab()
         self._build_dashboard_tab()
         self._build_settings_tab()
-
-        self.loaded_text = ""
-        self.current_topic = ""
 
     def _build_upload_tab(self):
         frame = self.tab_upload
@@ -114,12 +110,13 @@ class App(tk.Tk):
 
     def _on_upload(self):
         path = filedialog.askopenfilename(
-            filetypes=[("All supported", "*.txt *.docx *.pdf"), ("Text files", "*.txt"), ("Word", "*.docx"), ("PDF", "*.pdf")]
+            filetypes=[("All supported", "*.txt *.docx *.pdf"), ("Text files", "*.txt"), ("Word", "*.docx"),
+                       ("PDF", "*.pdf")]
         )
         if not path:
             return
         try:
-            text = read_text_from_path(path)
+            text = extract_text(path)
             self.txt_paste.delete("1.0", tk.END)
             self.txt_paste.insert(tk.END, text)
             messagebox.showinfo("Loaded", f"Loaded {os.path.basename(path)} (length {len(text)} chars)")
