@@ -90,8 +90,32 @@ class App(tk.Tk):
         ttk.Button(top, text="Refresh Topics", command=self._refresh_topics).pack(side=tk.LEFT, padx=5)
         ttk.Button(top, text="Start Quiz", command=self._on_start_quiz).pack(side=tk.RIGHT)
 
-        self.quiz_frame = ttk.Frame(frame, padding=10)
-        self.quiz_frame.pack(fill=tk.BOTH, expand=True)
+        # Scrollable quiz area: Canvas -> inner Frame
+        self.quiz_canvas = tk.Canvas(frame, bg="white", highlightthickness=0)
+        vsb = ttk.Scrollbar(frame, orient="vertical", command=self.quiz_canvas.yview)
+        self.quiz_canvas.configure(yscrollcommand=vsb.set)
+        self.quiz_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.quiz_frame = ttk.Frame(self.quiz_canvas, padding=10)
+        # create window with tag so we can resize it with the canvas
+        self.quiz_canvas.create_window((0, 0), window=self.quiz_frame, anchor="nw", tags="inner")
+
+        # update scrollregion when inner frame size changes
+        def _on_quiz_frame_config(event):
+            self.quiz_canvas.configure(scrollregion=self.quiz_canvas.bbox("all"))
+        self.quiz_frame.bind("<Configure>", _on_quiz_frame_config)
+
+        # make inner frame width follow the canvas width
+        def _on_canvas_config(event):
+            self.quiz_canvas.itemconfigure("inner", width=event.width)
+        self.quiz_canvas.bind("<Configure>", _on_canvas_config)
+
+        # simple mousewheel support (Linux / Windows; adjust if on mac)
+        def _on_mousewheel(event):
+            # Windows uses event.delta, on some X11 setups you may need to bind Button-4/5
+            self.quiz_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        self.quiz_canvas.bind_all("<MouseWheel>", _on_mousewheel)
 
     def _build_dashboard_tab(self):
         frame = self.tab_dashboard
