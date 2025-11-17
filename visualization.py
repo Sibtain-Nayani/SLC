@@ -4,17 +4,14 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import pandas as pd
 from datetime import datetime
 
-import seaborn as sns
-import matplotlib.pyplot as plt
-
-sns.set_theme(style="darkgrid", rc={
-    "axes.facecolor": "#1e1e1e",
-    "figure.facecolor": "#1e1e1e",
-    "axes.labelcolor": "white",
-    "text.color": "white",
-    "xtick.color": "white",
-    "ytick.color": "white",
-    "grid.color": "#3c3f41"
+sns.set_theme(style="whitegrid", rc={
+    "axes.facecolor": "white",
+    "figure.facecolor": "white",
+    "axes.labelcolor": "black",
+    "text.color": "black",
+    "xtick.color": "black",
+    "ytick.color": "black",
+    "grid.color": "#e6e6e6"
 })
 
 class Visualization:
@@ -22,13 +19,14 @@ class Visualization:
         self.db = db
 
     def plot_performance_over_time(self):
-        # gather all quiz_results
-        conn = self.db
-        rows = []
-        c = conn._conn.cursor()
+        c = self.db._conn.cursor()
         c.execute("SELECT topic, score, taken_at FROM quiz_results ORDER BY taken_at ASC")
+        rows = []
         for r in c.fetchall():
-            rows.append({"topic": r[0], "score": float(r[1]), "taken_at": datetime.fromisoformat(r[2])})
+            try:
+                rows.append({"topic": r[0], "score": float(r[1]), "taken_at": datetime.fromisoformat(r[2])})
+            except Exception:
+                continue
         if not rows:
             fig, ax = plt.subplots(figsize=(8,4))
             ax.text(0.5,0.5,"No quiz results yet", ha='center', va='center')
@@ -43,13 +41,15 @@ class Visualization:
         return fig
 
     def plot_forgetfulness_trend(self):
-        # naive: compute average score per day and plot decreasing trend
         c = self.db._conn.cursor()
         c.execute("SELECT taken_at, score FROM quiz_results")
         rows = []
         for r in c.fetchall():
-            dt = datetime.fromisoformat(r[0]).date()
-            rows.append({"date": dt, "score": float(r[1])})
+            try:
+                dt = datetime.fromisoformat(r[0]).date()
+                rows.append({"date": dt, "score": float(r[1])})
+            except Exception:
+                continue
         if not rows:
             fig, ax = plt.subplots(figsize=(8,4))
             ax.text(0.5,0.5,"No quiz results yet", ha='center', va='center')
@@ -70,7 +70,10 @@ class Visualization:
         c.execute("SELECT topic, score FROM quiz_results")
         rows = []
         for r in c.fetchall():
-            rows.append({"topic": r[0], "score": float(r[1])})
+            try:
+                rows.append({"topic": r[0], "score": float(r[1])})
+            except Exception:
+                continue
         if not rows:
             fig, ax = plt.subplots(figsize=(8,4))
             ax.text(0.5,0.5,"No quiz results yet", ha='center', va='center')
@@ -86,20 +89,9 @@ class Visualization:
         return fig
 
     def show_figure_in_toplevel(self, root_tk, fig, title="Chart"):
-        # create Toplevel and embed matplotlib figure
-        win = None
-        try:
-            win = root_tk if hasattr(root_tk, "tk") is False else root_tk
-        except Exception:
-            pass
-        top = None
-        try:
-            top = root_tk if False else None
-            import tkinter as tk
-            top = tk.Toplevel(root_tk)
-            top.title(title)
-            canvas = FigureCanvasTkAgg(fig, master=top)
-            canvas.draw()
-            canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        except Exception as e:
-            raise
+        import tkinter as tk
+        top = tk.Toplevel(root_tk)
+        top.title(title)
+        canvas = FigureCanvasTkAgg(fig, master=top)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
