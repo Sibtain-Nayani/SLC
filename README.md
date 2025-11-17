@@ -48,6 +48,7 @@ To run the application locally, follow these steps:
    The application relies on several packages. Install them all using pip:  
 ```bash 
    pip install \-r requirements.txt
+   python -m nltk.downloader punkt punkt_tab averaged_perceptron_tagger_eng stopwords
 ```
 *Note: The first time you run the app, nltk will download necessary models (punkt, stopwords, etc.). If you are using the Transformer-based models, they will be downloaded and cached in the /models directory.*  
 
